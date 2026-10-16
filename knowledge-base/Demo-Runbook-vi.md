@@ -43,6 +43,10 @@ Response về Streamlit
 
 Mở URL Cloud Run trong trình duyệt. Không bắt đầu bằng việc deploy hoặc chạy local.
 
+- **Người trình bày** mở URL có `?live=1` (ví dụ `https://coffee-barista-380921864905.us-central1.run.app/?live=1`) để luôn gọi Gemini thật, không dùng response cache — tool calling hiển thị đúng như demo.
+- **Khán giả** dùng URL thường. Câu trả lời cho các prompt mẫu được cache theo chuỗi câu hỏi, giảm tải Gemini khi hàng trăm người gõ cùng một prompt.
+- Khi `gemini-3.5-flash` bị 429 hoặc chậm quá 15s, agent tự chuyển sang `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` (xem `FALLBACK_MODELS` trong `agent.py`).
+
 ### 3.2. Kiểm tra service trước demo
 
 ```powershell
@@ -58,21 +62,39 @@ Cần thấy:
 - Revision đang nhận `100%` traffic.
 - Có URL Cloud Run.
 
-### 3.3. Giữ container warm nếu cần
+### 3.3. Scale cho ~300 người truy cập
 
-Khoảng 10–15 phút trước demo:
+Mỗi tab Streamlit giữ một WebSocket mở suốt phiên, Cloud Run tính mỗi WebSocket là một request đang chạy. Cấu hình cũ (`--concurrency 10 --max 3`) chỉ chịu được ~30 người.
+
+Khoảng 15–20 phút trước demo:
 
 ```powershell
 gcloud run services update coffee-barista `
   --project youtube-drive-auto-upload `
   --region us-central1 `
-  --min 1 `
-  --max 3 `
-  --memory 1Gi `
-  --cpu 1 `
-  --timeout 300 `
-  --concurrency 10
+  --cpu 1 --memory 2Gi `
+  --concurrency 35 `
+  --min 9 --max 16 --max-instances 16 `
+  --timeout 3600 `
+  --session-affinity `
+  --no-cpu-throttling
 ```
+
+- `min 9 × concurrency 35 ≈ 315` người, đã warm sẵn, không bị cold start.
+- Quota Cloud Run `us-central1` của project là **20 vCPU / 40 GiB** → `max 16` × 1 vCPU, chừa chỗ cho lúc rollout revision.
+- Cần cả `--max` (giới hạn cấp service) **và** `--max-instances` (cấp revision): nếu chỉ đặt `--max`, revision cũ vẫn giữ `maxScale: 3` và Cloud Run lấy giới hạn nhỏ hơn.
+- `timeout 3600` + `session-affinity`: WebSocket không bị cắt sau 5 phút và reconnect về đúng instance (history nằm trong RAM).
+
+Sau demo, trả về cấu hình tiết kiệm:
+
+```powershell
+gcloud run services update coffee-barista `
+  --project youtube-drive-auto-upload `
+  --region us-central1 `
+  --min 0 --cpu-throttling
+```
+
+Load test trước ngày demo: xem `loadtest/README.md`.
 
 Không chạy `gcloud run deploy` trong lúc demo.
 

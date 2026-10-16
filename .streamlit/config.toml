@@ -1,0 +1,8 @@
+# Tuned for the live demo on Cloud Run (many concurrent sessions per instance).
+[server]
+headless = true
+fileWatcherType = "none"
+runOnSave = false
+
+[browser]
+gatherUsageStats = false
